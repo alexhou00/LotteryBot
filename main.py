@@ -49,19 +49,28 @@ if len(db['stockHistory']) < len(db['stockmarket']):
 # db['stockDetails']['editCooldown'] = 0
 # db['stockDetails']['editCooldown'] = 0
 print(db.keys())
+#for i in db['stockHistory']: 
+    #if i!=[]: i.pop(0)
 
-db['stockmarket'].extend()
+# db['stockmarket'].extend([gauss(mu=0.2, sigma=0.05) for i in range(6)])
 STARTUP_NAMES = [("fintech","FTK"),
                 ("ShareExchange","SXG"),
                 ("Xylitol","XLT"),
                 ("Kompound","KPD"),
+                ("Richtig","RTG"),
+                ("Benoît B. Mandelbrot", "BBM"),
+                 
                 ("ForYourInvestments","FYI"),
                 ("Recombinase-Mediated Cassette","RMC"),
                 ("BLÅHAJ","BLH"),
+                ("Apricot","APRC"),
                 ("Enyzme","EYZ"),
-                ("Richtig","RTG"),
-                ("Benoît B. Mandelbrot", "BBM"),
-                ("","")]
+                ("Miquel Point Corp.","MPC"),
+                ("FinancialFlightStock","FFS"),
+                ("Commuter", "COM"),
+                ("I'llLuminatE","ILE"),
+                ("NeverMind", "NVM"),
+                ("Neosoft", "NSF")]
 
 ## DELETE THINGS HERE 
 ##
@@ -128,7 +137,7 @@ async def checkIfLotteryDraw():  # just loop idc the names
                     f"<@{person}> 對中了 {count} 個數字並贏得了 ${prizeTable[count]}，現在他有 ${db['bank'][person]}。")
 
             else:   # he/she purchased more than one lottery
-                await channel.send(f"<@{person}> 總共贏得了 ${countSum}，詳細結果請見附檔，現在他有 ${db['bank'][person]}。")
+                await channel.send(f"<@{person}> 買了 {len(guesses)} 張並總共贏得了 ${countSum}，詳細結果請見附檔，現在他有 ${db['bank'][person]}。")
         # end for
 
                         
@@ -158,6 +167,7 @@ async def checkIfLotteryDraw():  # just loop idc the names
                 # 10^6 so we can make money from STONKS
                 db['stockmarket'][i] *= exp((10**(-6)) + sigma * gauss(mu=0, sigma=5)) # two sigmas are different
                
+                if i>= len(db['stockHistory']): db['stockHistory'].append([])
                 db['stockHistory'][i].append(db['stockmarket'][i])
                 if len(db['stockHistory']) > 4320:  # queue max len 4320 -> 3d
                     db['stockHistory'][i].pop(0) # remove first item (like a queue)
@@ -366,7 +376,7 @@ async def on_message(message):
         
         elif (db['stockDetails']['status'] == 'open'):
             if command == ("stockmarket"):
-                toPrint = [f"{str(n).zfill(4)}  {round(p, 3):.3f}" for n, p in enumerate(db['stockmarket'])]
+                toPrint = [f"{str(n).zfill(4)}   { ('(' + p[1][1] + ') ').ljust(7) + p[1][0].ljust(29)}  {round(p[0], 3):.3f}" for n, p in enumerate(zip(db['stockmarket'], STARTUP_NAMES))]
                 await message.reply("股市如下：\n```"+'\n'.join(toPrint)+'\n```', delete_after=20)
     
             elif command.startswith("buystock"):
