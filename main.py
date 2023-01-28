@@ -2,7 +2,7 @@ import discord
 client = discord.Client()
 
 import datetime
-from random import sample, gauss
+from random import sample, gauss, randint
 from collections import Counter#, deque
 import os
 import re
@@ -46,12 +46,27 @@ if len(db['stockHistory']) < len(db['stockmarket']):
     for i in range(len(db['stockmarket'])-len(db['stockHistory'])):
         db['stockHistory'].append([])
 
+# db['stockDetails']['editCooldown'] = 0
+# db['stockDetails']['editCooldown'] = 0
 print(db.keys())
+
+db['stockmarket'].extend()
+STARTUP_NAMES = [("fintech","FTK"),
+                ("ShareExchange","SXG"),
+                ("Xylitol","XLT"),
+                ("Kompound","KPD"),
+                ("ForYourInvestments","FYI"),
+                ("Recombinase-Mediated Cassette","RMC"),
+                ("BLÅHAJ","BLH"),
+                ("Enyzme","EYZ"),
+                ("Richtig","RTG"),
+                ("Benoît B. Mandelbrot", "BBM"),
+                ("","")]
 
 ## DELETE THINGS HERE 
 ##
 ##
-# db['stockMessages'] = []
+# db['stockDetails'] = dict()
 
 def register(ID):  # user auto register / join the bank system
     db['bank'][ID] = 100
@@ -131,49 +146,63 @@ async def checkIfLotteryDraw():  # just loop idc the names
     # STONKS REFRESH
     if tradeStockCount % 6 == 0:
     # if True:
+        if not ((hour > 6) or (hour<2)):  # 2:00 ~ 6:00 休市
+            db['stockDetails']['status'] = 'closed'
         print("stock tick")
-        sigma = 0.001
-        for i in range(len(db['stockmarket'])):  # iterate every company
-            # gaussian distribution: avg = 0, stdev=5
-            # 10^6 so we can make money from STONKS
-            db['stockmarket'][i] *= exp((10**(-6)) + sigma * gauss(mu=0, sigma=5)) # two sigmas are different
-        # for i in range(len(db['stockmarket'])):    
-            db['stockHistory'][i].append(db['stockmarket'][i])
-            if len(db['stockHistory']) > 4320:  # queue max len 4320 -> 3d
-                db['stockHistory'][i].pop(0) # remove first item (like a queue)
-    
-            secretChannel = client.get_channel(secret_channel) 
-            stockChannel = client.get_channel(1068514854207508480)  #發財樂透-股市 channel
+        if (db['stockDetails']['editCooldown']) > 0:  # if on rate limit cooldown (blocked by discord)
+            db['stockDetails']['editCooldown'] -= 1  # cooldown is used to stop the bot from making requests
+        else:
+            sigma = 0.001
+            for i in range(len(db['stockmarket'])):  # iterate every company
+                # gaussian distribution: avg = 0, stdev=5
+                # 10^6 so we can make money from STONKS
+                db['stockmarket'][i] *= exp((10**(-6)) + sigma * gauss(mu=0, sigma=5)) # two sigmas are different
+               
+                db['stockHistory'][i].append(db['stockmarket'][i])
+                if len(db['stockHistory']) > 4320:  # queue max len 4320 -> 3d
+                    db['stockHistory'][i].pop(0) # remove first item (like a queue)
             
-            plt.plot(db['stockHistory'][i])
-            plt.savefig('files/fig.png')
-            plt.clf()
-            file = discord.File('files/fig.png')
-            temp_message = await secretChannel.send(file=file)
-            attachment = temp_message.attachments[0]
-    
-            embed = discord.Embed(title = f"STOCKS {str(i).zfill(4)} = {db['stockmarket'][i]:.3f}", description = "",
-                                  timestamp = datetime.datetime.utcnow(),
-                                  color = 0x26ad00)
-            embed.set_image(url = attachment.url)
-            # msg = await secretChannel.send(embed = embed)
-            # print(msg)
-            # print(type(msg))
-
-            stockMessages = db['stockMessages']
-            if i < len(stockMessages):
-                msg = await stockChannel.fetch_message(stockMessages[i])
-                try:
-                    await msg.edit(embed=embed)
-                except discord.errors.HTTPException:
-                    print("\nBLOCKED\nTERMINATING NOW\n")
-                    os.system('kill 1')
-                # print(f"successfully edited {i}")
-            else:
-                msg = await stockChannel.send(embed=embed)
-                stockMessages.append(msg.id)
-                db['stockMessages'] = stockMessages
-            
+            # DELETE   
+            db['stockDetails']['editCooldown'] = 0
+            db['stockDetails']['status'] = 'open'
+            # for i in range(len(db['stockmarket'])):
+            '''
+                secretChannel = client.get_channel(secret_channel) 
+                stockChannel = client.get_channel(1068514854207508480)  #發財樂透-股市 channel
+                
+                plt.plot(db['stockHistory'][i])
+                plt.savefig('files/fig.png')
+                plt.clf()
+                file = discord.File('files/fig.png')
+                temp_message = await secretChannel.send(file=file)
+                attachment = temp_message.attachments[0]
+        
+                embed = discord.Embed(title = f"STOCKS {str(i).zfill(4)} = {db['stockmarket'][i]:.3f}", description = "",
+                                      timestamp = datetime.datetime.utcnow(),
+                                      color = 0x26ad00)
+                embed.set_image(url = attachment.url)
+                # msg = await secretChannel.send(embed = embed)
+                # print(msg)
+                # print(type(msg))
+                
+                stockMessages = db['stockMessages']
+                if i < len(stockMessages):
+                    msg = await stockChannel.fetch_message(stockMessages[i])
+                    try:
+                        await msg.edit(embed=embed)
+                        db['stockDetails']['status'] = 'open'
+                        db['stockDetails']['editCooldown'] = 0
+                    except discord.errors.HTTPException:
+                        print("\nBLOCKED\nTERMINATING NOW\n")
+                        db['stockDetails']['status'] = 'closed'
+                        db['stockDetails']['editCooldown'] = 90
+                        os.system('kill 1')
+                    # print(f"successfully edited {i}")
+                else:
+                    msg = await stockChannel.send(embed=embed)
+                    stockMessages.append(msg.id)
+                    db['stockMessages'] = stockMessages
+            '''
 
 @client.event
 async def on_ready():  # after bot restart the bot is ready:
@@ -253,11 +282,13 @@ async def on_message(message):
             header = ["No", "#1", "#2", "#3", "#4", "#5", "#6", "更多資訊"]
             writer.writerow(header)
             additionalInfo = [f"${LOTTERY_COST*count}", f"{count} 張", 
-                              datetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S +0000")]
+                              datetime.datetime.now().strftime("%Y/%m/%d"),
+                              datetime.datetime.now().strftime("%H:%M:%S"),
+                             "+0000", randint(1001,9999)]
 
             for n, row in enumerate(db_guesses_ID):
                 row = [r.zfill(2) for r in map(str, row)]
-                if n >= 3:
+                if n >= 6:
                     writer.writerow([str(n+1).zfill(2)] + row)
                 else:  # first row (n=0), second row, third row...
                     writer.writerow([str(n+1).zfill(2)] + row + [additionalInfo[n]])
@@ -307,75 +338,9 @@ async def on_message(message):
             else:
                 await message.reply(f"<@{ID}> 今日已領取過每日收入。")
 
-        # stock related commands begin
-        elif command == ("stockmarket"):
-            toPrint = [f"{str(n).zfill(4)}  {round(p, 3):.3f}" for n, p in enumerate(db['stockmarket'])]
-            await message.reply("股市如下：\n```"+'\n'.join(toPrint)+'\n```', delete_after=20)
 
-        elif command.startswith("buystock"):
-            stockNum = int(command.split(' ', 1)[1])
-            print(stockNum)
-            sharePrice = round(db['stockmarket'][stockNum] * 1000)
-            if db['bank'][ID] >= sharePrice:
-                print("price", sharePrice)
-                db['bank'][ID] -= sharePrice
-                if ID not in db['stockbank']: db['stockbank'][ID] = Counter()
-                tmpCounter = Counter(db['stockbank'][ID])
-                tmpCounter.update({str(stockNum): 1})
-                db['stockbank'][ID] = tmpCounter
-                await message.reply(
-                    f"<@{ID}> 花了 ${sharePrice} 買一張股票，股票編號：{str(stockNum).zfill(4)}")
-            else:
-                await message.reply(
-                    f"<@{ID}> 的錢不夠。")
 
-        elif command.startswith("sellstock"):
-            stockNum = int(command.split(' ', 1)[1])
-            print(stockNum)
-            sharePrice = round(db['stockmarket'][stockNum] * 1000)
-            print("price", sharePrice)
-            if db['stockbank'][ID][str(stockNum)] > 0:
-                db['bank'][ID] += sharePrice
-                db['bank'][ID] = int(db['bank'][ID])
-                tmpCounter = Counter(db['stockbank'][ID])
-                tmpCounter.subtract(Counter({str(stockNum): 1}))
-                db['stockbank'][ID] = tmpCounter
-                await message.reply(
-                    f"<@{ID}> 以 ${sharePrice} 的價格賣了一張股票，股票編號：{str(stockNum).zfill(4)}")
-            else:
-                await message.reply(
-                    f"<@{ID}> 股票編號 {str(stockNum).zfill(4)} 的股票不夠。")
-
-        elif command == 'stockbank':
-            if ID not in db['stockbank']: db['stockbank'][ID] = Counter()
-            if len(db['stockbank'][ID]) > 0:
-                toPrint = '\n'.join([f"`{str(k).zfill(4)}`  `{v}`張" for k,v in sorted(db['stockbank'][ID].items()) if v!=0])
-                await message.reply(
-                        f"<@{ID}> 的股票有：\n{toPrint}。")
-            else:
-                await message.reply(f"<@{ID}> 目前沒有股票。")
-
-        elif command.startswith('stockchart'):
-            stockNum = command.split(' ', 1)[1]
-            if ' ' in stockNum: 
-                stockNum, duration = map(int, stockNum.split(' ', 1)) # duration specified
-                if len(db['stockHistory'][stockNum]) > duration:
-                    plt.plot(db['stockHistory'][stockNum][0-duration:])
-                else:
-                    plt.plot(db['stockHistory'][stockNum])
-            else: 
-                stockNum = int(stockNum)  # duration not specified
-                if len(db['stockHistory'][stockNum]) > 300:
-                    plt.plot(db['stockHistory'][stockNum][-300:])
-                else:
-                    plt.plot(db['stockHistory'][stockNum])
-            
-            plt.savefig('files/fig.png')
-            plt.clf()
-            await message.reply(file=discord.File('files/fig.png'), delete_after=20)
-        # stock related commands end
-
-        # for elio (刑法 bruh) and alexhou (just in case)
+                    # for elio (刑法 bruh) and alexhou (just in case)
         elif command.startswith("fine"):
             if ID == "843393747545751562" or ID == "693091131168260137":
                 fineID, fine = command.split(' ', 2)[1:]
@@ -385,8 +350,82 @@ async def on_message(message):
                 await message.channel.send(
                     f"<@{fineID}> 被處以罰金 ${fine}，理由：{reason}")
                 db['bank'][fineID] -= int(fine)
-        else:
-            await message.channel.send("未知的指令")
+
+
+
+        # stock related commands begin
+        elif command == 'stockbank':
+            if ID not in db['stockbank']: db['stockbank'][ID] = Counter()
+            if len(db['stockbank'][ID]) > 0:
+                toPrint = '\n'.join([f"`{str(k).zfill(4)}`  `{v}`張" for k,v in sorted(db['stockbank'][ID].items()) if v!=0])
+                await message.reply(
+                        f"<@{ID}> 的股票有：\n{toPrint}。")
+            else:
+                await message.reply(f"<@{ID}> 目前沒有股票。")
+                
+        
+        elif (db['stockDetails']['status'] == 'open'):
+            if command == ("stockmarket"):
+                toPrint = [f"{str(n).zfill(4)}  {round(p, 3):.3f}" for n, p in enumerate(db['stockmarket'])]
+                await message.reply("股市如下：\n```"+'\n'.join(toPrint)+'\n```', delete_after=20)
+    
+            elif command.startswith("buystock"):
+                stockNum = int(command.split(' ', 1)[1])
+                print(stockNum)
+                sharePrice = round(db['stockmarket'][stockNum] * 1000)
+                if db['bank'][ID] >= sharePrice:
+                    print("price", sharePrice)
+                    db['bank'][ID] -= sharePrice
+                    if ID not in db['stockbank']: db['stockbank'][ID] = Counter()
+                    tmpCounter = Counter(db['stockbank'][ID])
+                    tmpCounter.update({str(stockNum): 1})
+                    db['stockbank'][ID] = tmpCounter
+                    await message.reply(
+                        f"<@{ID}> 花了 ${sharePrice} 買一張股票，股票編號：{str(stockNum).zfill(4)}")
+                else:
+                    await message.reply(
+                        f"<@{ID}> 的錢不夠。")
+    
+            elif command.startswith("sellstock"):
+                stockNum = int(command.split(' ', 1)[1])
+                print(stockNum)
+                sharePrice = round(db['stockmarket'][stockNum] * 1000)
+                print("price", sharePrice)
+                if db['stockbank'][ID][str(stockNum)] > 0:
+                    db['bank'][ID] += sharePrice
+                    db['bank'][ID] = int(db['bank'][ID])
+                    tmpCounter = Counter(db['stockbank'][ID])
+                    tmpCounter.subtract(Counter({str(stockNum): 1}))
+                    db['stockbank'][ID] = tmpCounter
+                    await message.reply(
+                        f"<@{ID}> 以 ${sharePrice} 的價格賣了一張股票，股票編號：{str(stockNum).zfill(4)}")
+                else:
+                    await message.reply(
+                        f"<@{ID}> 股票編號 {str(stockNum).zfill(4)} 的股票不夠。")
+    
+            elif command.startswith('stockchart'):
+                stockNum = command.split(' ', 1)[1]
+                if ' ' in stockNum: 
+                    stockNum, duration = map(int, stockNum.split(' ', 1)) # duration specified
+                    if len(db['stockHistory'][stockNum]) > duration:
+                        plt.plot(db['stockHistory'][stockNum][0-duration:])
+                    else:
+                        plt.plot(db['stockHistory'][stockNum])
+                else: 
+                    stockNum = int(stockNum)  # duration not specified
+                    if len(db['stockHistory'][stockNum]) > 300:
+                        plt.plot(db['stockHistory'][stockNum][-300:])
+                    else:
+                        plt.plot(db['stockHistory'][stockNum])
+                
+                plt.savefig('files/fig.png')
+                plt.clf()
+                await message.reply(file=discord.File('files/fig.png'), delete_after=20)
+            # stock related commands end
+        elif 'stock' in command:
+            await message.reply("股市休市中...")
+    
+
 
 try:
     keep_alive.keep_alive()
