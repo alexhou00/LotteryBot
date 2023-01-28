@@ -3,7 +3,7 @@ client = discord.Client()
 
 import datetime
 from random import sample, gauss
-from collections import Counter
+from collections import Counter#, deque
 import os
 import re
 from discord.ext import tasks
@@ -20,14 +20,14 @@ import openpyxl
 
 from replit import db
 
-# to do: $buy (quick pick), one xlsx, receipt csv[done], self edit stonks, pm, ling2gu3, 數值自動監控 and notif,
-#         reply users instead of tags, stock permanent history, 收盤
+# to do: $buy (quick pick, pm, ling2gu3, 數值自動監控 and notif,收盤, 購入價
 # future to do: BLACKJACK
-
+# done: receipt csv[done], one xlsx), self edit stonks, reply users instead of tags, stock permanent history
 
 token = os.environ['DISCORD_BOT_SECRET']
 
 test_channel = 882982896934219817  # LANG-test
+secret_channel = 1068798588622225418
 GUESS_channel = 1067835837397618758  # main channel (in GUESS?)
 geo_channel = 968951342456537138  # bot-commands
 channel_ids = (test_channel, GUESS_channel, geo_channel)
@@ -39,14 +39,19 @@ tradeStockCount = 0  # count loop to check if time to trade stock (every 6 loops
 
 # also another prizeTable in tasks.loop if this one here is edited
 prizeTable = [0, 2, 6, 10, 600, 60000, 10000000]
-KEYPAD_TABLE = ('0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣','8️⃣','9️⃣')
-stockHistory = [[] for i in db['stockmarket']]  # len stockHistory = len db['stockmarket']
+KEYPAD_TABLE = ('0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣')
+
+# stockHistory = [[] for i in db['stockmarket']]  # len stockHistory = len db['stockmarket']
+if len(db['stockHistory']) < len(db['stockmarket']): 
+    for i in range(len(db['stockmarket'])-len(db['stockHistory'])):
+        db['stockHistory'].append([])
 
 print(db.keys())
 
 ## DELETE THINGS HERE 
 ##
 ##
+# db['stockMessages'] = []
 
 def register(ID):  # user auto register / join the bank system
     db['bank'][ID] = 100
@@ -54,7 +59,7 @@ def register(ID):  # user auto register / join the bank system
 
 @tasks.loop(seconds=10)  # repeat after every 10 seconds
 async def checkIfLotteryDraw():  # just loop idc the names
-    global tradeStockCount, prizeTable, stockHistory
+    global tradeStockCount, prizeTable# , stockHistory
     tradeStockCount += 1  # % 6 == 0 to trade stocks
     hour = (datetime.datetime.now().hour + 8) % 24  # utc +8
     if (hour % 2 == 0 and hour != 4 and hour != 6) and hour != db['prevLotDrawHr']:
@@ -72,45 +77,56 @@ async def checkIfLotteryDraw():  # just loop idc the names
         db['Quantity'] = 0
         times = str(datetime.datetime.today().year) + str(db['times']).zfill(4)
         await client.change_presence(activity=discord.Game(name=f"第 {times} 期")) # switch to playing next 期
+
         if q > 100:
             x = 100/(math_e-1)  # tmp var
             prizeTable = [0, 2, 6, ceil(10*log(q/x+1)), ceil(600*log(q/x+1)), ceil(60000*log(q/x+1)), ceil(10000000*log(q/x+1))]  ## Another prizeTable def above
             # P = [2,6,10r,600r, 60000r, 10000000r] as of 20230128
             # r = \max (1,\log_{e}(\frac{Q}{\frac{100}{e-1}}+1))
-            
             await channel.send(f"本期所有人共買了 {q} 張，因此對中三個以上的獎金將個別乘上 {log(q/x+1)} 並無條件進位至整數，而獎金陣列 P = {prizeTable[1:]}，買氣越旺獎金越高！")
+
+        wb = openpyxl.Workbook()  # excel file (wb: workbook == file)
+        ws = wb.active  # current WorkSheet (default named Sheet)
+        header = ["序號", "#1", "#2", "#3", "#4", "#5", "#6", "對中數目", "獎金"] 
+        ws.append(header)
+        
         for person, guesses in db['guesses'].items():  # for person in all guesses (Person==ID, type:str)
-            countList = []  # deprecated in my code: count 對中幾個 each guess and store each guess (row) here
+            # countList = []  # deprecated in my code: count 對中幾個 each guess and store each guess (row) here
             countSum = 0  # prize sum
-            csvList = []  # list to create csv (deprecated??)
+            # csvList = []  # list to create csv (deprecated??)
+            ws.append([f"User {person}"])
             for n, guess in enumerate(guesses):  # for each guess of a person in that person's guesses
                 count = sum(number in results for number in guess)  # count how many True's
                 db['bank'][person] += prizeTable[count]
-                countList.append(count)
-                csvList.append([n+1] + list(guess) + [count])
+                # countList.append(count)
+                # csvList.append( [n+1] + list(guess) + [count, prizeTable[count]])
+                row = [n+1] + list(guess) + [count, prizeTable[count]]
+                ws.append(row)
                 countSum += prizeTable[count]  # add to prize sum
-            if len(guesses) == 1:  # if this person only purchased one lottery
-                await channel.send(f"<@{person}> 對中了 {count} 個數字並贏得了 ${prizeTable[count]}，現在他有 ${db['bank'][person]}。")
-            else:   # he/she purchased more than one lottery
-                # await channel.send(f"<@{person}> 各對中了 {countList} 個數字並總共贏得了 ${countSum}，現在他有 ${db['bank'][person]}。")
-                await channel.send(f"<@{person}> 總共贏得了 ${countSum}，詳細結果請見附檔，現在他有 ${db['bank'][person]}。")
-                wb = openpyxl.Workbook()  # excel file (wb: workbook == file)
-                ws = wb.active  # current WorkSheet (default named Sheet)
-                with open('files/report.csv', 'w', newline='', encoding='utf8') as f:
-                    writer = csv.writer(f)  # csv writer object
-                    # write header row
-                    header = ["序號", "#1", "#2", "#3", "#4", "#5", "#6", "對中數目"]
-                    writer.writerow(header)
-                    ws.append(header)
-                    for row in csvList:
-                        writer.writerow(row)
-                        ws.append(row)
-                wb.save('files/report.xlsx')
-                await channel.send(file=discord.File('files/report.xlsx'))
-                os.remove('files/report.csv')
+            # end for
+            ws.append([f"總共 ${countSum}"])
+            ws.append([])
 
+
+            if len(guesses) == 1:  # if this person only purchased one lottery
+                await channel.send(
+                    f"<@{person}> 對中了 {count} 個數字並贏得了 ${prizeTable[count]}，現在他有 ${db['bank'][person]}。")
+
+            else:   # he/she purchased more than one lottery
+                await channel.send(f"<@{person}> 總共贏得了 ${countSum}，詳細結果請見附檔，現在他有 ${db['bank'][person]}。")
+        # end for
+
+                        
+        wb.save('files/report.xlsx')
+        await channel.send(file=discord.File('files/report.xlsx'))
+        os.remove('files/report.xlsx')
+
+
+
+        if len(db['guesses']) != 0: await channel.send(f"以上就是本期的開獎！")
+        else: await channel.send("本期沒有人下注...")
         db['guesses'] = {}
-        await channel.send(f"以上就是本期的開獎！") 
+        
 
     # STONKS REFRESH
     if tradeStockCount % 6 == 0:
@@ -121,7 +137,42 @@ async def checkIfLotteryDraw():  # just loop idc the names
             # gaussian distribution: avg = 0, stdev=5
             # 10^6 so we can make money from STONKS
             db['stockmarket'][i] *= exp((10**(-6)) + sigma * gauss(mu=0, sigma=5)) # two sigmas are different
-            stockHistory[i].append(db['stockmarket'][i])
+        # for i in range(len(db['stockmarket'])):    
+            db['stockHistory'][i].append(db['stockmarket'][i])
+            if len(db['stockHistory']) > 4320:  # queue max len 4320 -> 3d
+                db['stockHistory'][i].pop(0) # remove first item (like a queue)
+    
+            secretChannel = client.get_channel(secret_channel) 
+            stockChannel = client.get_channel(1068514854207508480)  #發財樂透-股市 channel
+            
+            plt.plot(db['stockHistory'][i])
+            plt.savefig('files/fig.png')
+            plt.clf()
+            file = discord.File('files/fig.png')
+            temp_message = await secretChannel.send(file=file)
+            attachment = temp_message.attachments[0]
+    
+            embed = discord.Embed(title = f"STOCKS {str(i).zfill(4)} = {db['stockmarket'][i]:.3f}", description = "",
+                                  timestamp = datetime.datetime.utcnow(),
+                                  color = 0x26ad00)
+            embed.set_image(url = attachment.url)
+            # msg = await secretChannel.send(embed = embed)
+            # print(msg)
+            # print(type(msg))
+
+            stockMessages = db['stockMessages']
+            if i < len(stockMessages):
+                msg = await stockChannel.fetch_message(stockMessages[i])
+                try:
+                    await msg.edit(embed=embed)
+                except discord.errors.HTTPException:
+                    print("\nBLOCKED\nTERMINATING NOW\n")
+                    os.system('kill 1')
+                # print(f"successfully edited {i}")
+            else:
+                msg = await stockChannel.send(embed=embed)
+                stockMessages.append(msg.id)
+                db['stockMessages'] = stockMessages
             
 
 @client.event
@@ -144,7 +195,7 @@ async def on_ready():  # after bot restart the bot is ready:
 
 @client.event
 async def on_message(message):
-    global stockHistory
+    # global stockHistory
     if message.author == client.user:  # if send by bot itself then ignore
         return
     texts = message.content  # string
@@ -199,16 +250,17 @@ async def on_message(message):
         filepathname = f"files/receipt{ID[-3:]}{db['times']}.csv"
         with open(filepathname, 'w', newline='', encoding='utf8') as f:
             writer = csv.writer(f)
-            header = ["序號", "#1", "#2", "#3", "#4", "#5", "#6", "更多資訊"]
+            header = ["No", "#1", "#2", "#3", "#4", "#5", "#6", "更多資訊"]
             writer.writerow(header)
             additionalInfo = [f"${LOTTERY_COST*count}", f"{count} 張", 
                               datetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S +0000")]
 
             for n, row in enumerate(db_guesses_ID):
+                row = [r.zfill(2) for r in map(str, row)]
                 if n >= 3:
-                    writer.writerow([n+1] + row)
+                    writer.writerow([str(n+1).zfill(2)] + row)
                 else:  # first row (n=0), second row, third row...
-                    writer.writerow([n+1] + row + [additionalInfo[n]])
+                    writer.writerow([str(n+1).zfill(2)] + row + [additionalInfo[n]])
         await message.channel.send(file=discord.File(filepathname))
         os.remove(filepathname)
 
@@ -228,37 +280,37 @@ async def on_message(message):
 
         if command == "bank":
             if ID not in db['bank']: register(ID)
-            await message.channel.send(
+            await message.reply(
             f"<@{ID}> 共有 ${db['bank'][ID]}")
 
         elif command == "purchases":
             times = str(datetime.datetime.today().year) + str(db['times']).zfill(4)
             if ID in db['guesses']:
-                await message.channel.send(f"<@{ID}> 於第 {times} 期共買了 {len(db['guesses'][ID])} 張：")
+                # await message.reply()
                 if len(db['guesses'][ID]) > 10:
                     toPrint = db['guesses'][ID][:10]
                     toPrint = map(str, list(map(list,toPrint)))
-                    await message.channel.send('\n'.join(toPrint)+'\n...等等等')
+                    await message.reply(f"<@{ID}> 於第 {times} 期共買了 {len(db['guesses'][ID])} 張：\n" + '\n'.join(toPrint)+'\n...等等等')
                 else: 
                     toPrint = db['guesses'][ID]
                     toPrint = map(str, list(map(list,toPrint)))
-                    await message.channel.send('\n'.join(toPrint))
+                    await message.reply(f"<@{ID}> 於第 {times} 期共買了 {len(db['guesses'][ID])} 張：\n" + '\n'.join(toPrint))
             else:
-                await message.channel.send(f"<@{ID}> 尚未於第 {times} 期購買。")
+                await message.reply(f"<@{ID}> 尚未於第 {times} 期購買。")
 
         elif command == "daily":
             if ID not in db['daily']:
                 db['daily'].append(ID)
                 if ID not in db['bank']: register(ID)
                 db['bank'][ID] += DAILY_INCOME
-                await message.channel.send(f"<@{ID}> 領取了每日收入 ${DAILY_INCOME}。")
+                await message.reply(f"<@{ID}> 領取了每日收入 ${DAILY_INCOME}。")
             else:
-                await message.channel.send(f"<@{ID}> 今日已領取過每日收入。")
+                await message.reply(f"<@{ID}> 今日已領取過每日收入。")
 
         # stock related commands begin
         elif command == ("stockmarket"):
             toPrint = [f"{str(n).zfill(4)}  {round(p, 3):.3f}" for n, p in enumerate(db['stockmarket'])]
-            await message.channel.send("股市如下：\n```"+'\n'.join(toPrint)+'\n```', delete_after=20)
+            await message.reply("股市如下：\n```"+'\n'.join(toPrint)+'\n```', delete_after=20)
 
         elif command.startswith("buystock"):
             stockNum = int(command.split(' ', 1)[1])
@@ -271,10 +323,10 @@ async def on_message(message):
                 tmpCounter = Counter(db['stockbank'][ID])
                 tmpCounter.update({str(stockNum): 1})
                 db['stockbank'][ID] = tmpCounter
-                await message.channel.send(
+                await message.reply(
                     f"<@{ID}> 花了 ${sharePrice} 買一張股票，股票編號：{str(stockNum).zfill(4)}")
             else:
-                await message.channel.send(
+                await message.reply(
                     f"<@{ID}> 的錢不夠。")
 
         elif command.startswith("sellstock"):
@@ -288,27 +340,39 @@ async def on_message(message):
                 tmpCounter = Counter(db['stockbank'][ID])
                 tmpCounter.subtract(Counter({str(stockNum): 1}))
                 db['stockbank'][ID] = tmpCounter
-                await message.channel.send(
+                await message.reply(
                     f"<@{ID}> 以 ${sharePrice} 的價格賣了一張股票，股票編號：{str(stockNum).zfill(4)}")
             else:
-                await message.channel.send(
+                await message.reply(
                     f"<@{ID}> 股票編號 {str(stockNum).zfill(4)} 的股票不夠。")
 
         elif command == 'stockbank':
             if ID not in db['stockbank']: db['stockbank'][ID] = Counter()
             if len(db['stockbank'][ID]) > 0:
                 toPrint = '\n'.join([f"`{str(k).zfill(4)}`  `{v}`張" for k,v in sorted(db['stockbank'][ID].items()) if v!=0])
-                await message.channel.send(
+                await message.reply(
                         f"<@{ID}> 的股票有：\n{toPrint}。")
             else:
-                await message.channel.send(f"<@{ID}> 目前沒有股票。")
+                await message.reply(f"<@{ID}> 目前沒有股票。")
 
         elif command.startswith('stockchart'):
-            stockNum = int(command.split(' ', 1)[1])
-            plt.plot(stockHistory[stockNum])
+            stockNum = command.split(' ', 1)[1]
+            if ' ' in stockNum: 
+                stockNum, duration = map(int, stockNum.split(' ', 1)) # duration specified
+                if len(db['stockHistory'][stockNum]) > duration:
+                    plt.plot(db['stockHistory'][stockNum][0-duration:])
+                else:
+                    plt.plot(db['stockHistory'][stockNum])
+            else: 
+                stockNum = int(stockNum)  # duration not specified
+                if len(db['stockHistory'][stockNum]) > 300:
+                    plt.plot(db['stockHistory'][stockNum][-300:])
+                else:
+                    plt.plot(db['stockHistory'][stockNum])
+            
             plt.savefig('files/fig.png')
             plt.clf()
-            await message.channel.send(file=discord.File('files/fig.png'), delete_after=20)
+            await message.reply(file=discord.File('files/fig.png'), delete_after=20)
         # stock related commands end
 
         # for elio (刑法 bruh) and alexhou (just in case)
